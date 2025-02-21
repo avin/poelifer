@@ -34,8 +34,8 @@ private:
     QTimer *timer;
     bool trackingActive;
 
-    void loadConfig();
-    void saveConfig();
+    void loadProfileFromFile(const QString &filePath);
+    void saveProfileToFile(const QString &filePath);
     QString getActiveProcessName();
     QColor getPixelColor(int x, int y);
 };

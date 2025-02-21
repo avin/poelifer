@@ -1,8 +1,3 @@
-#ifdef Q_OS_WIN
-#define WIN32_LEAN_AND_MEAN
-#define PSAPI_VERSION 1
-#endif
-
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
 
@@ -17,11 +12,28 @@
 #include <QScreen>
 #include <QMouseEvent>
 #include <QDialog>
+#include <QSettings>
+#include <QFileDialog>
+#include <QCheckBox>
+#include <QHBoxLayout>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
 #include <psapi.h>
 #endif
+
+namespace {
+    QWidget* createCenteredCheckBox(bool checked) {
+        QWidget *container = new QWidget();
+        QHBoxLayout *layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setAlignment(Qt::AlignCenter);
+        QCheckBox *checkBox = new QCheckBox(container);
+        checkBox->setChecked(checked);
+        layout->addWidget(checkBox);
+        return container;
+    }
+}
 
 // Класс для захвата нажатия клавиши
 class KeyCaptureDialog : public QDialog {
@@ -87,12 +99,16 @@ MainWindow::MainWindow(QWidget *parent)
     headers << "X" << "Y" << "Color" << "Не равен";
     ui->trackingTable->setHorizontalHeaderLabels(headers);
 
-    loadConfig();
+    // Загрузка последнего профиля из реестра (если имеется)
+    QSettings settings("MyCompany", "PoeLifer");
+    QString lastProfile = settings.value("lastProfilePath", "").toString();
+    if (!lastProfile.isEmpty()) {
+        loadProfileFromFile(lastProfile);
+    }
 }
 
 MainWindow::~MainWindow()
 {
-    saveConfig();
     delete ui;
 }
 
@@ -124,8 +140,7 @@ void MainWindow::checkConditions()
         QTableWidgetItem *xItem = ui->trackingTable->item(i, 0);
         QTableWidgetItem *yItem = ui->trackingTable->item(i, 1);
         QTableWidgetItem *colorItem = ui->trackingTable->item(i, 2);
-        QTableWidgetItem *flagItem = ui->trackingTable->item(i, 3);
-        if (!xItem || !yItem || !colorItem || !flagItem)
+        if (!xItem || !yItem || !colorItem)
             continue;
         bool okX, okY;
         int x = xItem->text().toInt(&okX);
@@ -135,7 +150,9 @@ void MainWindow::checkConditions()
         QColor expectedColor(colorItem->text().trimmed());
         QColor currentColor = getPixelColor(x, y);
 
-        bool invert = (flagItem->text().toLower() == "1" || flagItem->text().toLower() == "true");
+        QWidget *widget = ui->trackingTable->cellWidget(i, 3);
+        QCheckBox *checkBox = widget ? widget->findChild<QCheckBox*>() : nullptr;
+        bool invert = (checkBox && checkBox->isChecked());
 
         if (!invert) {
             if (currentColor != expectedColor)
@@ -220,7 +237,7 @@ void MainWindow::onAddPointClicked()
     ui->trackingTable->setItem(row, 0, new QTableWidgetItem("0"));
     ui->trackingTable->setItem(row, 1, new QTableWidgetItem("0"));
     ui->trackingTable->setItem(row, 2, new QTableWidgetItem("#FFFFFF"));
-    ui->trackingTable->setItem(row, 3, new QTableWidgetItem("0")); // Флаг по умолчанию: проверка равенства
+    ui->trackingTable->setCellWidget(row, 3, createCenteredCheckBox(false));
 }
 
 void MainWindow::onRemovePointClicked()
@@ -234,20 +251,25 @@ void MainWindow::onRemovePointClicked()
 
 void MainWindow::onSaveConfigClicked()
 {
-    saveConfig();
+    QString filePath = QFileDialog::getSaveFileName(this, "Сохранить профиль", "", "JSON Files (*.json)");
+    if (filePath.isEmpty())
+        return;
+    saveProfileToFile(filePath);
     QMessageBox::information(this, "Конфигурация", "Конфигурация сохранена");
 }
 
 void MainWindow::onLoadConfigClicked()
 {
-    loadConfig();
+    QString filePath = QFileDialog::getOpenFileName(this, "Загрузить профиль", "", "JSON Files (*.json)");
+    if (filePath.isEmpty())
+        return;
+    loadProfileFromFile(filePath);
     QMessageBox::information(this, "Конфигурация", "Конфигурация загружена");
 }
 
-void MainWindow::loadConfig()
+void MainWindow::loadProfileFromFile(const QString &filePath)
 {
-    QString configPath = QCoreApplication::applicationDirPath() + "/config.json";
-    QFile file(configPath);
+    QFile file(filePath);
     if (!file.open(QIODevice::ReadOnly))
         return;
     QByteArray data = file.readAll();
@@ -268,17 +290,20 @@ void MainWindow::loadConfig()
         int x = point.value("x").toInt();
         int y = point.value("y").toInt();
         QString color = point.value("color").toString();
-        bool invert = point.contains("invert") ? point.value("invert").toBool() : false;
+        bool invert = point.value("invert").toBool();
         int row = ui->trackingTable->rowCount();
         ui->trackingTable->insertRow(row);
         ui->trackingTable->setItem(row, 0, new QTableWidgetItem(QString::number(x)));
         ui->trackingTable->setItem(row, 1, new QTableWidgetItem(QString::number(y)));
         ui->trackingTable->setItem(row, 2, new QTableWidgetItem(color));
-        ui->trackingTable->setItem(row, 3, new QTableWidgetItem(invert ? "1" : "0"));
+        ui->trackingTable->setCellWidget(row, 3, createCenteredCheckBox(invert));
     }
+
+    QSettings settings("MyCompany", "PoeLifer");
+    settings.setValue("lastProfilePath", filePath);
 }
 
-void MainWindow::saveConfig()
+void MainWindow::saveProfileToFile(const QString &filePath)
 {
     QJsonObject obj;
     obj["processName"] = ui->processLineEdit->text();
@@ -287,19 +312,22 @@ void MainWindow::saveConfig()
     QJsonArray points;
     int rows = ui->trackingTable->rowCount();
     for (int i = 0; i < rows; i++) {
-        if (!ui->trackingTable->item(i, 0) ||
-            !ui->trackingTable->item(i, 1) ||
-            !ui->trackingTable->item(i, 2) ||
-            !ui->trackingTable->item(i, 3))
+        QTableWidgetItem *xItem = ui->trackingTable->item(i, 0);
+        QTableWidgetItem *yItem = ui->trackingTable->item(i, 1);
+        QTableWidgetItem *colorItem = ui->trackingTable->item(i, 2);
+        if (!xItem || !yItem || !colorItem)
             continue;
         bool okX, okY;
-        int x = ui->trackingTable->item(i, 0)->text().toInt(&okX);
-        int y = ui->trackingTable->item(i, 1)->text().toInt(&okY);
-        QString color = ui->trackingTable->item(i, 2)->text();
-        bool invert = (ui->trackingTable->item(i, 3)->text().toLower() == "1" ||
-                       ui->trackingTable->item(i, 3)->text().toLower() == "true");
+        int x = xItem->text().toInt(&okX);
+        int y = yItem->text().toInt(&okY);
         if (!okX || !okY)
             continue;
+        QString color = colorItem->text();
+
+        QWidget *widget = ui->trackingTable->cellWidget(i, 3);
+        QCheckBox *checkBox = widget ? widget->findChild<QCheckBox*>() : nullptr;
+        bool invert = (checkBox && checkBox->isChecked());
+
         QJsonObject point;
         point["x"] = x;
         point["y"] = y;
@@ -312,12 +340,13 @@ void MainWindow::saveConfig()
     obj["timeoutMax"] = 400;
 
     QJsonDocument doc(obj);
-    QString configPath = QCoreApplication::applicationDirPath() + "/config.json";
-    QFile file(configPath);
+    QFile file(filePath);
     if (file.open(QIODevice::WriteOnly)) {
         file.write(doc.toJson());
         file.close();
     }
+    QSettings settings("MyCompany", "PoeLifer");
+    settings.setValue("lastProfilePath", filePath);
 }
 
 void MainWindow::onPickTrackingPointClicked()
@@ -333,7 +362,7 @@ void MainWindow::onPickTrackingPointClicked()
          ui->trackingTable->setItem(row, 0, new QTableWidgetItem(QString::number(pt.x())));
          ui->trackingTable->setItem(row, 1, new QTableWidgetItem(QString::number(pt.y())));
          ui->trackingTable->setItem(row, 2, new QTableWidgetItem(color.name()));
-         ui->trackingTable->setItem(row, 3, new QTableWidgetItem("0"));
+         ui->trackingTable->setCellWidget(row, 3, createCenteredCheckBox(false));
     });
     picker->show();
 }
