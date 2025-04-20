@@ -1,31 +1,33 @@
 #include "planwidget.h"
-#include "networkutil.h"
 #include "keycapturedialog.h"
+#include "networkutil.h"
 #include "screenpicker.h"
 
-#include <QVBoxLayout>
-#include <QHBoxLayout>
-#include <QGroupBox>
-#include <QTableWidget>
-#include <QPushButton>
-#include <QComboBox>
-#include <QLineEdit>
-#include <QHeaderView>
 #include <QCheckBox>
-#include <QTimer>
+#include <QComboBox>
 #include <QDialog>
-#include <QRandomGenerator>
-#include <QTableWidgetItem>
-#include <QMessageBox>
-#include <QJsonArray>
+#include <QGroupBox>
 #include <QGuiApplication>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QJsonArray>
+#include <QLineEdit>
+#include <QMessageBox>
+#include <QPushButton>
+#include <QRandomGenerator>
 #include <QScreen>
+#include <QTableWidget>
+#include <QTableWidgetItem>
+#include <QTimer>
+#include <QVBoxLayout>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
 #endif
 
-PlanWidget::PlanWidget(QWidget *parent) : QWidget(parent), planActive(false)
+PlanWidget::PlanWidget(QWidget *parent)
+    : QWidget(parent)
+    , planActive(false)
 {
     QVBoxLayout *mainLayout = new QVBoxLayout(this);
 
@@ -34,15 +36,16 @@ PlanWidget::PlanWidget(QWidget *parent) : QWidget(parent), planActive(false)
     planNameLineEdit->setPlaceholderText("Имя плана");
     planNameLineEdit->setObjectName("planNameLineEdit");
     mainLayout->addWidget(planNameLineEdit);
-    connect(planNameLineEdit, &QLineEdit::textChanged, this, [this](const QString &name){
+    connect(planNameLineEdit, &QLineEdit::textChanged, this, [this](const QString &name) {
         emit planNameChanged(name);
     });
 
     // Группа точек отслеживания
     QGroupBox *groupTracking = new QGroupBox("Точки отслеживания", this);
     QVBoxLayout *trackingLayout = new QVBoxLayout(groupTracking);
-    QTableWidget *table = new QTableWidget(0, 4, this);
-    table->setHorizontalHeaderLabels(QStringList() << "X" << "Y" << "Color" << "Не равен");
+    QTableWidget *table = new QTableWidget(0, 5, this);
+    table->setHorizontalHeaderLabels(QStringList()
+                                     << "X" << "Y" << "Color" << "Погрешность (%)" << "Не равен");
     table->horizontalHeader()->setStretchLastSection(true);
     table->setObjectName("trackingTable");
     trackingLayout->addWidget(table);
@@ -89,9 +92,7 @@ PlanWidget::PlanWidget(QWidget *parent) : QWidget(parent), planActive(false)
     connect(scanKeyButton, &QPushButton::clicked, this, &PlanWidget::onScanKey);
 }
 
-PlanWidget::~PlanWidget()
-{
-}
+PlanWidget::~PlanWidget() {}
 
 void PlanWidget::setProcessName(const QString &name)
 {
@@ -105,7 +106,7 @@ QString PlanWidget::getProcessName() const
 
 void PlanWidget::setPlanName(const QString &name)
 {
-    if(planNameLineEdit)
+    if (planNameLineEdit)
         planNameLineEdit->setText(name);
 }
 
@@ -121,7 +122,7 @@ bool PlanWidget::isPlanActive() const
 
 void PlanWidget::onTogglePlan()
 {
-    QPushButton *toggleButton = findChild<QPushButton*>("toggleButton");
+    QPushButton *toggleButton = findChild<QPushButton *>("toggleButton");
     if (!planActive) {
         planActive = true;
         if (toggleButton)
@@ -152,7 +153,7 @@ void PlanWidget::stopPlan()
 
 void PlanWidget::onAddPoint()
 {
-    QTableWidget *table = findChild<QTableWidget*>("trackingTable");
+    QTableWidget *table = findChild<QTableWidget *>("trackingTable");
     if (!table)
         return;
     int row = table->rowCount();
@@ -160,21 +161,22 @@ void PlanWidget::onAddPoint()
     table->setItem(row, 0, new QTableWidgetItem("0"));
     table->setItem(row, 1, new QTableWidgetItem("0"));
     table->setItem(row, 2, new QTableWidgetItem("#FFFFFF"));
+    table->setItem(row, 3, new QTableWidgetItem("0"));
     QWidget *container = new QWidget(this);
     QHBoxLayout *layout = new QHBoxLayout(container);
-    layout->setContentsMargins(0,0,0,0);
+    layout->setContentsMargins(0, 0, 0, 0);
     layout->setAlignment(Qt::AlignCenter);
     QCheckBox *checkBox = new QCheckBox(container);
     layout->addWidget(checkBox);
-    table->setCellWidget(row, 3, container);
+    table->setCellWidget(row, 4, container);
 }
 
 void PlanWidget::onRemovePoint()
 {
-    QTableWidget *table = findChild<QTableWidget*>("trackingTable");
+    QTableWidget *table = findChild<QTableWidget *>("trackingTable");
     if (!table)
         return;
-    QList<QTableWidgetItem*> selected = table->selectedItems();
+    QList<QTableWidgetItem *> selected = table->selectedItems();
     if (selected.isEmpty())
         return;
     int row = selected.first()->row();
@@ -183,7 +185,7 @@ void PlanWidget::onRemovePoint()
 
 void PlanWidget::onPickPoint()
 {
-    QTableWidget *table = findChild<QTableWidget*>("trackingTable");
+    QTableWidget *table = findChild<QTableWidget *>("trackingTable");
     if (!table)
         return;
     QScreen *screen = QGuiApplication::primaryScreen();
@@ -192,19 +194,20 @@ void PlanWidget::onPickPoint()
     QPixmap screenshot = screen->grabWindow(0);
     ScreenPicker *picker = new ScreenPicker(screenshot);
     connect(picker, &ScreenPicker::pointPicked, this, [this, table, screenshot](const QPoint &pt) {
-         QColor color = screenshot.toImage().pixelColor(pt);
-         int row = table->rowCount();
-         table->insertRow(row);
-         table->setItem(row, 0, new QTableWidgetItem(QString::number(pt.x())));
-         table->setItem(row, 1, new QTableWidgetItem(QString::number(pt.y())));
-         table->setItem(row, 2, new QTableWidgetItem(color.name()));
-         QWidget *container = new QWidget(this);
-         QHBoxLayout *layout = new QHBoxLayout(container);
-         layout->setContentsMargins(0,0,0,0);
-         layout->setAlignment(Qt::AlignCenter);
-         QCheckBox *checkBox = new QCheckBox(container);
-         layout->addWidget(checkBox);
-         table->setCellWidget(row, 3, container);
+        QColor color = screenshot.toImage().pixelColor(pt);
+        int row = table->rowCount();
+        table->insertRow(row);
+        table->setItem(row, 0, new QTableWidgetItem(QString::number(pt.x())));
+        table->setItem(row, 1, new QTableWidgetItem(QString::number(pt.y())));
+        table->setItem(row, 2, new QTableWidgetItem(color.name()));
+        table->setItem(row, 3, new QTableWidgetItem("0"));
+        QWidget *container = new QWidget(this);
+        QHBoxLayout *layout = new QHBoxLayout(container);
+        layout->setContentsMargins(0, 0, 0, 0);
+        layout->setAlignment(Qt::AlignCenter);
+        QCheckBox *checkBox = new QCheckBox(container);
+        layout->addWidget(checkBox);
+        table->setCellWidget(row, 4, container);
     });
     picker->show();
 }
@@ -212,17 +215,17 @@ void PlanWidget::onPickPoint()
 void PlanWidget::onScanKey()
 {
     KeyCaptureDialog dialog(this);
-    if(dialog.exec() == QDialog::Accepted) {
-         QLineEdit *keyLineEdit = findChild<QLineEdit*>("keyLineEdit");
-         if (keyLineEdit) {
-             keyLineEdit->setText(QString::number(dialog.capturedKey()));
-         }
+    if (dialog.exec() == QDialog::Accepted) {
+        QLineEdit *keyLineEdit = findChild<QLineEdit *>("keyLineEdit");
+        if (keyLineEdit) {
+            keyLineEdit->setText(QString::number(dialog.capturedKey()));
+        }
     }
 }
 
 bool PlanWidget::arePixelConditionsMet()
 {
-    QTableWidget *table = findChild<QTableWidget*>("trackingTable");
+    QTableWidget *table = findChild<QTableWidget *>("trackingTable");
     if (!table)
         return false;
     int rowCount = table->rowCount();
@@ -232,12 +235,14 @@ bool PlanWidget::arePixelConditionsMet()
         QTableWidgetItem *xItem = table->item(i, 0);
         QTableWidgetItem *yItem = table->item(i, 1);
         QTableWidgetItem *colorItem = table->item(i, 2);
-        if (!xItem || !yItem || !colorItem)
+        QTableWidgetItem *tolItem = table->item(i, 3);
+        if (!xItem || !yItem || !colorItem || !tolItem)
             continue;
-        bool okX, okY;
+        bool okX, okY, okTol;
         int x = xItem->text().toInt(&okX);
         int y = yItem->text().toInt(&okY);
-        if (!okX || !okY)
+        double tolPercent = tolItem->text().toDouble(&okTol);
+        if (!okX || !okY || !okTol)
             continue;
         QColor expectedColor(colorItem->text().trimmed());
         QColor currentColor;
@@ -249,14 +254,19 @@ bool PlanWidget::arePixelConditionsMet()
 #else
         currentColor = QColor();
 #endif
-        QWidget *widget = table->cellWidget(i, 3);
-        QCheckBox *checkBox = widget ? widget->findChild<QCheckBox*>() : nullptr;
+        int dr = abs(currentColor.red() - expectedColor.red());
+        int dg = abs(currentColor.green() - expectedColor.green());
+        int db = abs(currentColor.blue() - expectedColor.blue());
+        double tol = tolPercent / 100.0 * 255.0;
+        bool close = (dr <= tol && dg <= tol && db <= tol);
+        QWidget *widget = table->cellWidget(i, 4);
+        QCheckBox *checkBox = widget ? widget->findChild<QCheckBox *>() : nullptr;
         bool invert = (checkBox && checkBox->isChecked());
         if (!invert) {
-            if (currentColor != expectedColor)
+            if (!close)
                 return false;
         } else {
-            if (currentColor == expectedColor)
+            if (close)
                 return false;
         }
     }
@@ -269,10 +279,8 @@ void PlanWidget::checkConditions()
         return;
     if (!arePixelConditionsMet())
         return;
-    if (!arePixelConditionsMet())
-        return;
-    QComboBox *actionComboBox = findChild<QComboBox*>("actionComboBox");
-    QLineEdit *keyLineEdit = findChild<QLineEdit*>("keyLineEdit");
+    QComboBox *actionComboBox = findChild<QComboBox *>("actionComboBox");
+    QLineEdit *keyLineEdit = findChild<QLineEdit *>("keyLineEdit");
     if (!actionComboBox || !keyLineEdit)
         return;
     QString action = actionComboBox->currentText();
@@ -308,7 +316,7 @@ void PlanWidget::performKeyAction(int keyCode)
         inputUp.type = INPUT_KEYBOARD;
         inputUp.ki.wVk = static_cast<WORD>(keyCode);
         inputUp.ki.dwFlags = KEYEVENTF_KEYUP;
-        SendInput(1, &inputUp, sizeof(INPUT));        
+        SendInput(1, &inputUp, sizeof(INPUT));
         Beep(800, 100);
     });
 }
@@ -328,25 +336,26 @@ QJsonObject PlanWidget::getConfig() const
     QJsonObject obj;
     obj["planName"] = getPlanName();
     // Сохраняем трекинговые точки
-    QTableWidget *table = findChild<QTableWidget*>("trackingTable");
+    QTableWidget *table = findChild<QTableWidget *>("trackingTable");
     QJsonArray points;
-    if(table) {
+    if (table) {
         for (int i = 0; i < table->rowCount(); i++) {
             QJsonObject point;
-            point["x"] = table->item(i,0) ? table->item(i,0)->text() : "";
-            point["y"] = table->item(i,1) ? table->item(i,1)->text() : "";
-            point["color"] = table->item(i,2) ? table->item(i,2)->text() : "";
-            QWidget *w = table->cellWidget(i,3);
-            QCheckBox *cb = w ? w->findChild<QCheckBox*>() : nullptr;
+            point["x"] = table->item(i, 0) ? table->item(i, 0)->text() : "";
+            point["y"] = table->item(i, 1) ? table->item(i, 1)->text() : "";
+            point["color"] = table->item(i, 2) ? table->item(i, 2)->text() : "";
+            point["tolerance"] = table->item(i, 3) ? table->item(i, 3)->text() : "0";
+            QWidget *w = table->cellWidget(i, 4);
+            QCheckBox *cb = w ? w->findChild<QCheckBox *>() : nullptr;
             point["invert"] = cb ? cb->isChecked() : false;
             points.append(point);
         }
     }
     obj["trackingPoints"] = points;
     // Сохраняем действие
-    QComboBox *actionComboBox = findChild<QComboBox*>("actionComboBox");
-    QLineEdit *keyLineEdit = findChild<QLineEdit*>("keyLineEdit");
-    if(actionComboBox && keyLineEdit) {
+    QComboBox *actionComboBox = findChild<QComboBox *>("actionComboBox");
+    QLineEdit *keyLineEdit = findChild<QLineEdit *>("keyLineEdit");
+    if (actionComboBox && keyLineEdit) {
         obj["action"] = actionComboBox->currentText();
         obj["key"] = keyLineEdit->text();
     }
@@ -355,11 +364,11 @@ QJsonObject PlanWidget::getConfig() const
 
 void PlanWidget::loadConfig(const QJsonObject &obj)
 {
-    if(obj.contains("planName"))
+    if (obj.contains("planName"))
         setPlanName(obj["planName"].toString());
     // Загружаем трекинговые точки
-    QTableWidget *table = findChild<QTableWidget*>("trackingTable");
-    if(table) {
+    QTableWidget *table = findChild<QTableWidget *>("trackingTable");
+    if (table) {
         table->setRowCount(0);
         QJsonArray points = obj["trackingPoints"].toArray();
         for (int i = 0; i < points.size(); i++) {
@@ -369,23 +378,25 @@ void PlanWidget::loadConfig(const QJsonObject &obj)
             table->setItem(row, 0, new QTableWidgetItem(point["x"].toString()));
             table->setItem(row, 1, new QTableWidgetItem(point["y"].toString()));
             table->setItem(row, 2, new QTableWidgetItem(point["color"].toString()));
+            QString tol = point.contains("tolerance") ? point["tolerance"].toString() : "0";
+            table->setItem(row, 3, new QTableWidgetItem(tol));
             QWidget *container = new QWidget(this);
             QHBoxLayout *layout = new QHBoxLayout(container);
-            layout->setContentsMargins(0,0,0,0);
+            layout->setContentsMargins(0, 0, 0, 0);
             layout->setAlignment(Qt::AlignCenter);
             QCheckBox *checkBox = new QCheckBox(container);
             checkBox->setChecked(point["invert"].toBool());
             layout->addWidget(checkBox);
-            table->setCellWidget(row, 3, container);
+            table->setCellWidget(row, 4, container);
         }
     }
     // Загружаем действие
-    QComboBox *actionComboBox = findChild<QComboBox*>("actionComboBox");
-    QLineEdit *keyLineEdit = findChild<QLineEdit*>("keyLineEdit");
-    if(actionComboBox && keyLineEdit) {
+    QComboBox *actionComboBox = findChild<QComboBox *>("actionComboBox");
+    QLineEdit *keyLineEdit = findChild<QLineEdit *>("keyLineEdit");
+    if (actionComboBox && keyLineEdit) {
         QString act = obj["action"].toString();
         int idx = actionComboBox->findText(act);
-        if(idx != -1)
+        if (idx != -1)
             actionComboBox->setCurrentIndex(idx);
         keyLineEdit->setText(obj["key"].toString());
     }
