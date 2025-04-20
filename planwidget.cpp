@@ -20,6 +20,8 @@
 #include <QTableWidgetItem>
 #include <QTimer>
 #include <QVBoxLayout>
+#include <QMap>
+#include <QList>
 
 #ifdef Q_OS_WIN
 #include <windows.h>
@@ -43,9 +45,9 @@ PlanWidget::PlanWidget(QWidget *parent)
     // Группа точек отслеживания
     QGroupBox *groupTracking = new QGroupBox("Точки отслеживания", this);
     QVBoxLayout *trackingLayout = new QVBoxLayout(groupTracking);
-    QTableWidget *table = new QTableWidget(0, 5, this);
-    table->setHorizontalHeaderLabels(QStringList()
-                                     << "X" << "Y" << "Color" << "Погрешность (%)" << "Не равен");
+    QTableWidget *table = new QTableWidget(0, 6, this);
+    table->setHorizontalHeaderLabels(QStringList() << "X" << "Y" << "Color" << "Tolerance (%)"
+                                                   << "Not eq" << "Group");
     table->horizontalHeader()->setStretchLastSection(true);
     table->setObjectName("trackingTable");
     trackingLayout->addWidget(table);
@@ -169,6 +171,7 @@ void PlanWidget::onAddPoint()
     QCheckBox *checkBox = new QCheckBox(container);
     layout->addWidget(checkBox);
     table->setCellWidget(row, 4, container);
+    table->setItem(row, 5, new QTableWidgetItem(""));
 }
 
 void PlanWidget::onRemovePoint()
@@ -208,6 +211,7 @@ void PlanWidget::onPickPoint()
         QCheckBox *checkBox = new QCheckBox(container);
         layout->addWidget(checkBox);
         table->setCellWidget(row, 4, container);
+        table->setItem(row, 5, new QTableWidgetItem(""));
     });
     picker->show();
 }
@@ -231,6 +235,8 @@ bool PlanWidget::arePixelConditionsMet()
     int rowCount = table->rowCount();
     if (rowCount == 0)
         return false;
+
+    QMap<QString, QList<bool>> groupResults;
     for (int i = 0; i < rowCount; i++) {
         QTableWidgetItem *xItem = table->item(i, 0);
         QTableWidgetItem *yItem = table->item(i, 1);
@@ -258,17 +264,37 @@ bool PlanWidget::arePixelConditionsMet()
         int dg = abs(currentColor.green() - expectedColor.green());
         int db = abs(currentColor.blue() - expectedColor.blue());
         double tol = tolPercent / 100.0 * 255.0;
-        bool close = (dr <= tol && dg <= tol && db <= tol);
+        bool match = (dr <= tol && dg <= tol && db <= tol);
+
+        QTableWidgetItem *groupItem = table->item(i, 5);
+        QString groupId = groupItem ? groupItem->text().trimmed() : "";
+
         QWidget *widget = table->cellWidget(i, 4);
         QCheckBox *checkBox = widget ? widget->findChild<QCheckBox *>() : nullptr;
-        bool invert = (checkBox && checkBox->isChecked());
-        if (!invert) {
-            if (!close)
+        bool invertFlag = (checkBox && checkBox->isChecked());
+        bool pixelCondition = invertFlag ? !match : match;
+
+        if (groupId.isEmpty()) {
+            // обязательная проверка
+            if (!pixelCondition)
                 return false;
         } else {
-            if (close)
-                return false;
+            // накапливаем результаты по группам
+            groupResults[groupId].append(pixelCondition);
         }
+    }
+    // проверяем опциональные группы: требуется, чтобы ВСЕ пиксели в группе НЕ прошли проверку
+    for (auto it = groupResults.constBegin(); it != groupResults.constEnd(); ++it) {
+        const QList<bool> &results = it.value();
+        bool allFailed = true;
+        for (bool res : results) {
+            if (res) {
+                allFailed = false;
+                break;
+            }
+        }
+        if (!allFailed)
+            return false;
     }
     return true;
 }
@@ -348,6 +374,8 @@ QJsonObject PlanWidget::getConfig() const
             QWidget *w = table->cellWidget(i, 4);
             QCheckBox *cb = w ? w->findChild<QCheckBox *>() : nullptr;
             point["invert"] = cb ? cb->isChecked() : false;
+            QTableWidgetItem *groupItem = table->item(i, 5);
+            point["groupId"] = groupItem ? groupItem->text() : "";
             points.append(point);
         }
     }
@@ -388,6 +416,8 @@ void PlanWidget::loadConfig(const QJsonObject &obj)
             checkBox->setChecked(point["invert"].toBool());
             layout->addWidget(checkBox);
             table->setCellWidget(row, 4, container);
+            QString grp = point.contains("groupId") ? point["groupId"].toString() : "";
+            table->setItem(row, 5, new QTableWidgetItem(grp));
         }
     }
     // Загружаем действие
